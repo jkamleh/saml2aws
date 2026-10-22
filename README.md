@@ -1,3 +1,132 @@
+# saml2aws (team fork, temporary)
+
+> [!IMPORTANT]
+> This is a temporary fork of [Versent/saml2aws](https://github.com/Versent/saml2aws).
+> It will be **archived** once both pull requests below are merged and released upstream.
+> When that happens, switch back to the official release (see [Going back to the official release](#going-back-to-the-official-release)).
+
+## Why this fork exists
+
+Two fixes we need are waiting in open upstream pull requests. Rather than wait for them to be merged and released, this fork ships them now:
+
+| Upstream PR | What it fixes |
+|---|---|
+| [Versent/saml2aws#1541](https://github.com/Versent/saml2aws/pull/1541) | Microsoft Entra (AAD) sometimes asks you to set up an extra sign-in method, with a **Not now** option. saml2aws stops at that prompt and the login fails. This fix chooses **Not now** for you so the login completes. Mandatory registration is still enforced. |
+| [Versent/saml2aws#1516](https://github.com/Versent/saml2aws/pull/1516) | On Windows, saving your password fails with `Error storing password in keychain.: The stub received bad data.` This fix updates the Windows Credential Manager library (wincred 1.2.3). |
+
+Nothing else is changed. Releases are built by this repository's GitHub Actions with Go 1.27.2.
+
+## Which version to use
+
+Use the latest release: **[v2.36.19-team.1](https://github.com/jkamleh/saml2aws/releases/tag/v2.36.19-team.1)**
+
+Pick the file for your machine:
+
+| Your machine | How to check | Download |
+|---|---|---|
+| Mac with Apple Silicon (M1 to M4) | `uname -m` prints `arm64` | `saml2aws_2.36.19-team.1_darwin_arm64.tar.gz` |
+| Mac with Intel | `uname -m` prints `x86_64` | `saml2aws_2.36.19-team.1_darwin_amd64.tar.gz` |
+| Windows (most PCs) | `$env:PROCESSOR_ARCHITECTURE` prints `AMD64` | `saml2aws_2.36.19-team.1_windows_amd64.zip` |
+| Windows on ARM | `$env:PROCESSOR_ARCHITECTURE` prints `ARM64` | `saml2aws_2.36.19-team.1_windows_arm64.zip` |
+
+After installing, `saml2aws --version` should print `2.36.19-team.1`.
+
+## Install on macOS
+
+These steps replace the Homebrew binary. Homebrew's own copy is kept, so you can switch back at any time.
+
+```sh
+cd ~/Downloads
+
+# Download (or grab the file from the release page in your browser)
+gh release download v2.36.19-team.1 -R jkamleh/saml2aws -p '*darwin_arm64.tar.gz'   # Intel: '*darwin_amd64.tar.gz'
+
+# Extract and unblock
+tar -xzf saml2aws_2.36.19-team.1_darwin_*.tar.gz saml2aws
+xattr -d com.apple.quarantine saml2aws 2>/dev/null || true
+chmod +x saml2aws
+
+# Replace the Homebrew link with this binary
+dest="$(brew --prefix)/bin/saml2aws"
+rm "$dest"
+cp saml2aws "$dest"
+hash -r
+
+saml2aws --version
+```
+
+Not using Homebrew? Copy it somewhere on your `PATH` instead, for example `sudo cp saml2aws /usr/local/bin/`.
+
+### Unblocking on macOS
+
+The binary is not notarised by Apple, so macOS may block it.
+
+- Run `xattr -d com.apple.quarantine saml2aws` on the extracted file (included in the steps above). Files downloaded with `gh release download` are usually not quarantined.
+- If you still see *"saml2aws cannot be opened because Apple cannot check it for malicious software"*, open **System Settings > Privacy & Security**, scroll to **Security**, click **Open Anyway** next to saml2aws, then run it again.
+
+## Install on Windows
+
+Run these in PowerShell from the folder you downloaded the zip into. Use `arm64` in place of `amd64` if you are on Windows on ARM.
+
+```powershell
+# Extract and unblock
+Expand-Archive .\saml2aws_2.36.19-team.1_windows_amd64.zip -DestinationPath .\saml2aws-team -Force
+Unblock-File .\saml2aws-team\saml2aws.exe
+
+# Find your current saml2aws, back it up, and replace it
+$dest = (Get-Command saml2aws).Source
+Copy-Item $dest "$dest.backup"
+Copy-Item .\saml2aws-team\saml2aws.exe $dest -Force
+
+saml2aws --version
+```
+
+If you installed with a package manager, `$dest` may point at a small launcher (shim) instead of the real program. Replace the real one instead:
+
+| Installed with | Real location of `saml2aws.exe` |
+|---|---|
+| Chocolatey | `C:\ProgramData\chocolatey\lib\saml2aws\tools\saml2aws.exe` (run PowerShell as Administrator) |
+| Scoop | `$HOME\scoop\apps\saml2aws\current\saml2aws.exe` |
+
+Not installed yet? Either copy `saml2aws.exe` into a folder on your `PATH`, or use the installer `saml2aws_2.36.19-team.1_windows_amd64.msi` from the release page. If you already have saml2aws from Chocolatey, Scoop or the official MSI, uninstall it before using the MSI.
+
+### Unblocking on Windows
+
+The program is not code signed, so Windows may block it.
+
+- Run `Unblock-File` on the file (included in the steps above), or right-click the file, choose **Properties**, tick **Unblock** and click **OK**.
+- If SmartScreen shows *"Windows protected your PC"*, click **More info**, then **Run anyway**.
+
+## Verify the download (optional)
+
+Each release includes checksum files. Compare the SHA-256 of your download with the matching line in `saml2aws_2.36.19-team.1_checksums.txt` (Windows, Linux) or `saml2aws_2.36.19-team.1_darwin_checksums.txt` (macOS).
+
+```sh
+shasum -a 256 saml2aws_2.36.19-team.1_darwin_arm64.tar.gz                # macOS
+```
+
+```powershell
+(Get-FileHash .\saml2aws_2.36.19-team.1_windows_amd64.zip).Hash.ToLower()  # Windows
+```
+
+## Going back to the official release
+
+Once both pull requests are merged and released upstream:
+
+- **macOS (Homebrew):** remove this binary, then upgrade so Homebrew relinks its own:
+  ```sh
+  rm "$(brew --prefix)/bin/saml2aws"
+  brew upgrade saml2aws
+  brew link saml2aws   # only needed if saml2aws is not found afterwards
+  ```
+- **Windows:** reinstall or upgrade with your package manager (for example `choco upgrade saml2aws`), or copy your `.backup` file back over `saml2aws.exe`.
+
+This fork will then be archived.
+
+---
+
+*The original upstream README follows.*
+
 # saml2aws
 
 [![GitHub Actions status](https://github.com/Versent/saml2aws/workflows/Go/badge.svg?branch=master)](https://github.com/Versent/saml2aws/actions?query=workflow%3AGo) [![Build status - Windows](https://ci.appveyor.com/api/projects/status/ptpi18kci16o4i82/branch/master?svg=true)](https://ci.appveyor.com/project/davidobrien1985/saml2aws/branch/master)

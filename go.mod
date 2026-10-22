@@ -2,7 +2,7 @@ module github.com/versent/saml2aws/v2
 
 go 1.21.0
 
-toolchain go1.22.5
+toolchain go1.27.2
 
 require (
 	github.com/99designs/keyring v1.2.2

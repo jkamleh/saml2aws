@@ -1,18 +1,41 @@
 name: release
 
+# Manual only. Pushes, tags, pull requests and fork syncs never start a release.
 on:
-  push:
-    tags:
-      - "*"
   workflow_dispatch:
     inputs:
       tag:
-        description: The tag to run against. This trigger runs the GoReleaser and MSI builder.
+        description: Existing team tag to release, e.g. v2.36.19-team.1
         required: true
 
+permissions:
+  contents: read
+
 jobs:
+  validate:
+    name: validate tag
+    runs-on: ubuntu-latest
+    if: >-
+      github.repository == 'jkamleh/saml2aws' &&
+      github.actor == 'jkamleh' &&
+      github.ref == 'refs/heads/master'
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Only allow team tags
+        id: check
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-team\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a team tag (expected vX.Y.Z-team.N)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   release:
     name: release
+    needs: [validate]
     strategy:
       # the goreleaser and the Github release API doesn't handle concurrent
       # access well, so run goreleaser serially
@@ -23,12 +46,13 @@ jobs:
           - ubuntu-22.04
           - macos-latest
     runs-on: ${{ matrix.os }}
-    if: github.event_name != 'workflow_dispatch'
-    permissions: write-all
+    permissions:
+      contents: write
     steps:
-      - name: Check out code into the Go module directory
+      - name: Check out the tag
         uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ needs.validate.outputs.tag }}
           fetch-depth: 0
 
       - name: Set up Go 1.x
@@ -40,17 +64,6 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
 
-      - name: Add Lowercase Repository Name to Environment
-        run: |
-          echo REPOSITORY_NAME_LOWERCASE=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
-
-      - uses: "docker/login-action@v3"
-        if: matrix.os == 'ubuntu-22.04'
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.actor }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
-
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -58,39 +71,34 @@ jobs:
           args: release --clean --config .goreleaser.${{ matrix.os }}.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE_NAME: ${{ env.REPOSITORY_NAME_LOWERCASE }}
+          GORELEASER_CURRENT_TAG: ${{ needs.validate.outputs.tag }}
 
   windows-msi:
     name: Build Windows MSI and upload to release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    needs: [release]
-    if: >- # https://github.com/actions/runner/issues/491
-      always() &&
-      (needs.release.result == 'success' || needs.release.result == 'skipped')
+    needs: [validate, release]
     env:
       INSTALLER: ${{ github.workspace }}/.github/win-msi
       BIN: ${{ github.workspace }}/.github/win-msi/src/bin
       WIXIMG: dactiv/wix@sha256:17d232708589641f5632f9a1ff9463ad087b192cea7b8e6012d2b47ec6af5f6c
     steps:
       - name: Normalize tag values
+        env:
+          VER: ${{ needs.validate.outputs.tag }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] ; then
-              VER=${{ github.event.inputs.tag }}
-          else
-              VER=${GITHUB_REF/refs\/tags\//}
-          fi
-
-          VERSION=${VER//v}
+          VERSION=${VER#v}
 
           echo "VER_TAG=$VER" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "MSI_VERSION=${VERSION/-team./.}" >> $GITHUB_ENV
           echo "ASSET=saml2aws_${VERSION}_windows_amd64.zip" >> $GITHUB_ENV
 
       - name: Check out code
         uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ needs.validate.outputs.tag }}
           fetch-depth: 0
 
       - name: Retrieve the release asset
@@ -111,68 +119,10 @@ jobs:
           # container does not run as root
           chmod -R o+rw "${INSTALLER}"
 
-          cat "${INSTALLER}/wix.sh" | docker run --rm -i -e VERSION -v "${INSTALLER}:/wix" ${WIXIMG} /bin/sh
+          cat "${INSTALLER}/wix.sh" | docker run --rm -i -e VERSION -e MSI_VERSION -v "${INSTALLER}:/wix" ${WIXIMG} /bin/sh
 
       - name: Upload the asset to the release
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v0.2.2.1.2.2.15 / v2.2.1
         with:
           tag_name: ${{ env.VER_TAG }}
           files: ${{ env.INSTALLER }}/out/*.msi
-
-  chocolatey:
-    name: Deploy to chocolatey
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    needs: [release]
-    if: >- # https://github.com/actions/runner/issues/491
-      always() &&
-      (needs.release.result == 'success' || needs.release.result == 'skipped')
-    steps:
-      - name: Normalize tag values
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] ; then
-              VER=${{ github.event.inputs.tag }}
-          else
-              VER=${GITHUB_REF/refs\/tags\//}
-          fi
-
-          VERSION=${VER//v}
-
-          echo "VER_TAG=$VER" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Check out code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup PowerShell module cache
-        id: cacher
-        uses: actions/cache@v4
-        with:
-          path: "C:\\Users\\runneradmin\\Documents\\PowerShell\\Modules"
-          key: ${{ runner.os }}-InvokeBuild
-
-      - name: Install required PowerShell modules
-        if: steps.cacher.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Set-PSRepository PSGallery -InstallationPolicy Trusted
-          Install-Module InvokeBuild -ErrorAction Stop
-
-      - name: Invoke build script
-        env:
-          appName: saml2aws
-        shell: pwsh
-        run: Invoke-Build
-
-      - name: Deploy
-        shell: pwsh
-        env:
-          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
-          VERSION: ${{ env.VERSION }}
-        run: |
-          choco apikey --key "$env:CHOCOLATEY_API_KEY" --source "https://push.chocolatey.org/"
-          choco push ./choco/saml2aws.${env:VERSION}.nupkg --source "https://push.chocolatey.org/"

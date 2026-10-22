@@ -28,6 +28,9 @@ Pick the file for your machine:
 | Mac with Intel | `uname -m` prints `x86_64` | `saml2aws_2.36.19-team.1_darwin_amd64.tar.gz` |
 | Windows (most PCs) | `$env:PROCESSOR_ARCHITECTURE` prints `AMD64` | `saml2aws_2.36.19-team.1_windows_amd64.zip` |
 | Windows on ARM | `$env:PROCESSOR_ARCHITECTURE` prints `ARM64` | `saml2aws_2.36.19-team.1_windows_arm64.zip` |
+| Linux (most machines) | `uname -m` prints `x86_64` | `saml2aws_2.36.19-team.1_linux_amd64.tar.gz` |
+| Linux on ARM | `uname -m` prints `aarch64` | `saml2aws_2.36.19-team.1_linux_arm64.tar.gz` |
+| Linux with a YubiKey (U2F) | `uname -m` prints `x86_64` | `saml2aws-u2f_2.36.19-team.1_linux_amd64.tar.gz` |
 
 After installing, `saml2aws --version` should print `2.36.19-team.1`.
 
@@ -97,12 +100,40 @@ The program is not code signed, so Windows may block it.
 - Run `Unblock-File` on the file (included in the steps above), or right-click the file, choose **Properties**, tick **Unblock** and click **OK**.
 - If SmartScreen shows *"Windows protected your PC"*, click **More info**, then **Run anyway**.
 
+## Install on Linux
+
+Use `arm64` in place of `amd64` if you are on ARM. For the YubiKey build, download `saml2aws-u2f_2.36.19-team.1_linux_amd64.tar.gz` instead (it needs `libudev`, which most desktop distributions already have).
+
+```sh
+cd ~/Downloads
+
+# Download (or grab the file from the release page in your browser)
+gh release download v2.36.19-team.1 -R jkamleh/saml2aws -p 'saml2aws_*_linux_amd64.tar.gz'
+
+# Extract
+tar -xzf saml2aws_2.36.19-team.1_linux_amd64.tar.gz saml2aws
+chmod +x saml2aws
+
+# Replace your current saml2aws (or install to /usr/local/bin if you don't have one)
+dest="$(command -v saml2aws || echo /usr/local/bin/saml2aws)"
+[ -f "$dest" ] && sudo cp -p "$dest" "$dest.backup"
+sudo install -m 0755 saml2aws "$dest"
+hash -r
+
+saml2aws --version
+```
+
+If your current saml2aws lives in your home directory (for example `~/.local/bin`), you can drop `sudo` from the last two commands.
+
+Linux does not block downloaded programs, so there is no unblocking step. The file only needs to be executable, which `chmod +x` and `install -m 0755` take care of.
+
 ## Verify the download (optional)
 
-Each release includes checksum files. Compare the SHA-256 of your download with the matching line in `saml2aws_2.36.19-team.1_checksums.txt` (Windows, Linux) or `saml2aws_2.36.19-team.1_darwin_checksums.txt` (macOS).
+Each release includes checksum files. Compare the SHA-256 of your download with the matching line in `saml2aws_2.36.19-team.1_checksums.txt` (Windows, Linux), `saml2aws_2.36.19-team.1_darwin_checksums.txt` (macOS) or `saml2aws-u2f_2.36.19-team.1_checksums.txt` (Linux YubiKey build).
 
 ```sh
 shasum -a 256 saml2aws_2.36.19-team.1_darwin_arm64.tar.gz                # macOS
+sha256sum saml2aws_2.36.19-team.1_linux_amd64.tar.gz                     # Linux
 ```
 
 ```powershell
@@ -120,6 +151,7 @@ Once both pull requests are merged and released upstream:
   brew link saml2aws   # only needed if saml2aws is not found afterwards
   ```
 - **Windows:** reinstall or upgrade with your package manager (for example `choco upgrade saml2aws`), or copy your `.backup` file back over `saml2aws.exe`.
+- **Linux:** reinstall the official release the way you originally installed it, or copy your `.backup` file back over `saml2aws`.
 
 This fork will then be archived.
 
